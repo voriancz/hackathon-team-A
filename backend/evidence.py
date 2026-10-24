@@ -117,7 +117,10 @@ def title_score(claim: str, title: str, toks: list[str]) -> float:
     tw = re.findall(r"[\wá-žÁ-Ž]+", title)
     first_claim = (toks[0][:4].lower() if toks else "")
     bonus = 2.0 if tw and first_claim and tw[0][:4].lower() == first_claim else 0.0
-    return overlap + bonus - 0.15 * max(0, len(tw) - 1)
+    # title words the claim never mentions ("mestská časť Ružinov", "republika") mean a different, narrower article
+    cs = _stems(claim)
+    uncovered = sum(1 for w in tw if len(w) > 2 and w.lower() not in _STOP and w.lower()[:4] not in cs)
+    return overlap + bonus - 0.15 * max(0, len(tw) - 1) - 0.6 * uncovered
 
 
 def _secondary_entities(toks: list[str]) -> list[str]:
