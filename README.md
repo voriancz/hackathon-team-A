@@ -1,13 +1,13 @@
 # Wiki Fact Check
 
-Hlasový fact-check v reálném čase. Řekneš větu, aplikace ji průběžně přepisuje a ještě během mluvení ověřuje proti české Wikipedii. Výsledek je jedna ze čtyř karet: **PRAVDA**, **NEPRAVDA**, **NESMYSL** (věta nedává smysl jako tvrzení) nebo **NELZE OVĚŘIT** (s důvodem, proč). Pod mikrofonem běží „detektor lži": seismograf, který při pravdě vyjede nahoru, při nepravdě dolů a při neutrálu drží střed. Vpravo je historie výroků s větou z důkazu a odkazem na zdroj.
+Hlasový fact-check v reálném čase, česky, slovensky nebo anglicky. Řekneš větu, aplikace ji průběžně přepisuje a ještě během mluvení ověřuje proti Wikipedii v daném jazyce. Výsledek je jedna ze čtyř karet: **PRAVDA**, **NEPRAVDA**, **NESMYSL** (věta nedává smysl jako tvrzení) nebo **NELZE OVĚŘIT** (s důvodem, proč). Pod mikrofonem běží „detektor lži": seismograf, který při pravdě vyjede nahoru, při nepravdě dolů a při neutrálu drží střed. Vpravo je historie výroků s větou z důkazu a odkazem na zdroj.
 
 Verdikt nedělá žádný velký jazykový model. Rozhoduje lokální NLI model (`MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7`, ~560 MB, běží na CPU) plus několik pravidel pro čísla, vztahy typu „hlavní město" a nesmysly. Nikdy neukážeme PRAVDA/NEPRAVDA bez věty z důkazu a odkazu.
 
 ## Co potřebuješ
 
 - macOS nebo Linux, **Python 3.9+** (na Macu stačí `python3` z Xcode Command Line Tools) a **Node 20+**.
-- **Google Chrome** – frontend používá Web Speech API (`cs-CZ`), které Safari ani Firefox pro češtinu spolehlivě neumí.
+- **Google Chrome** – frontend používá Web Speech API (`cs-CZ`, `sk-SK`, `en-US`), které Safari ani Firefox pro češtinu a slovenštinu spolehlivě neumí. Na telefonu funguje Chrome pro Android; rozložení se na úzkém displeji přepne na graf nahoře a panel s mikrofonem dole, historie je pod tlačítkem *historie (n)*.
 - Připojení k internetu při prvním startu (stažení modelu) a za běhu (MediaWiki API), pokud si nepostavíš lokální index.
 
 ## Backend (FastAPI + NLI)
@@ -26,7 +26,7 @@ curl -s localhost:8000/check -H 'Content-Type: application/json' -d '{"claim":"T
 curl -s localhost:8000/check_many -H 'Content-Type: application/json' -d '{"text":"Tunel Blanka je tunelový komplex. Měří 1000 km."}'
 ```
 
-Odpověď obsahuje `card`, `hint` (důvod u NELZE OVĚŘIT / NESMYSL), `evidence` (věta, titulek článku, URL, skóre souhlasu a rozporu, `by_rule`) a `timings` v milisekundách po fázích.
+Oba endpointy berou volitelné `lang` (`cs`, `sk`, `en`, výchozí `cs`), které vybírá Wikipedii (`cs.`/`sk.`/`en.wikipedia.org`); pravidla i NLI model jsou vícejazyčné. Odpověď obsahuje `card`, `hint` (důvod u NELZE OVĚŘIT / NESMYSL), `evidence` (věta, titulek článku, URL, skóre souhlasu a rozporu, `by_rule`) a `timings` v milisekundách po fázích.
 
 Volitelné proměnné prostředí: `WIKI_UA` (User-Agent pro MediaWiki API, slušnost vůči Wikipedii), `WIKI_INDEX` (cesta k lokálnímu indexu), `TYPE_MODE=nli` (klasifikace typu výroku modelem místo pravidel; pomalejší, v demu vypnuto).
 
@@ -62,14 +62,15 @@ Adresa backendu se dá přepsat přes `NEXT_PUBLIC_API` (výchozí `http://local
 | Klávesa / prvek | Co dělá |
 |---|---|
 | Tlačítko mikrofonu dole v sidebaru nebo **mezerník** | Start / stop poslechu; vedle tlačítka běží oscilloskop vstupu, po zastavení se vše vrátí na neutrál |
-| **d** | Demo bez mikrofonu: simulované „namlouvání" připravených vět (`DEMO` v `app/page.tsx`); totéž spustí URL `?demo` |
+| **CS / SK / EN** vpravo nahoře | Jazyk rozpoznávání i Wikipedie; při běžícím poslechu se rozpoznávání restartuje v novém jazyce |
+| **d** | Demo bez mikrofonu: simulované „namlouvání" připravených vět (`DEMO_BY_LANG` v `app/page.tsx`, podle zvoleného jazyka); totéž spustí URL `?demo` |
 | **/** | Skryté textové pole pro ručně napsaný výrok |
 | **i** | Debug overlay s odpověďmi backendu a časy |
 | **Esc** | Zavře textové pole a zastaví demo |
 
 ## Jak to funguje
 
-**Přepis.** Web Speech API posílá průběžné (interim) i finální výsledky. Každá změna průběžného přepisu se po 200 ms debounce pošle na `POST /check` jako spekulativní dotaz; běžící dotaz se zruší, výsledky se cachují podle normalizovaného textu. Finální přepis se nikdy neruší, a pokud obsahuje víc vět, jde na `POST /check_many`, které vrátí verdikt pro každou větu zvlášť (předchozí věta slouží jako kontext, takže „Je dlouhý 1000 km." po „Tunel Blanka je tunelový komplex." ví, o čem mluví).
+**Přepis.** Web Speech API posílá průběžné (interim) i finální výsledky. Chrome ale u češtiny finální výsledek zdržuje, takže konec výroku detekujeme sami: když se průběžný přepis 1 s nezmění (nebo výrok běží déle než 9 s), rozpoznávání se zastaví, Chrome vydá finální text a `onend` poslech hned znovu spustí. Každá změna průběžného přepisu se po 200 ms debounce pošle na `POST /check` jako spekulativní dotaz; běžící dotaz se zruší, výsledky se cachují podle normalizovaného textu. Finální přepis se nikdy neruší, a pokud obsahuje víc vět, jde na `POST /check_many`, které vrátí verdikt pro každou větu zvlášť (předchozí věta slouží jako kontext, takže „Je dlouhý 1000 km." po „Tunel Blanka je tunelový komplex." ví, o čem mluví).
 
 **Typ výroku.** Pravidla v `backend/engine.py`: méně než tři slova je neúplná věta, otazník nebo tázací zájmeno je otázka, názorová slova bez čísla jsou názor. Nic z toho se neověřuje a končí kartou NESMYSL s nápovědou. Kauzální tvrzení o politice („snížil chudobu", „zajistil růst") končí jako NELZE OVĚŘIT, protože Wikipedie taková tvrzení neumí potvrdit.
 

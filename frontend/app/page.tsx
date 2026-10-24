@@ -23,10 +23,31 @@ const DEMO = [
   "Brno je hlavní město Česka.",
   "Praha má přes milion obyvatel.",
 ];
+type Lang = "cs" | "sk" | "en";
+const LANGS: Record<Lang, string> = { cs: "cs-CZ", sk: "sk-SK", en: "en-US" };
+const DEMO_BY_LANG: Record<Lang, string[]> = {
+  cs: DEMO,
+  sk: [
+    "Bratislava je hlavné mesto Slovenska.",
+    "Gerlachovský štít je najvyšší vrch Slovenska.",
+    "Dunaj meria 100 kilometrov.",
+    "Tatry sú tvoja babka.",
+    "Košice sú hlavné mesto Slovenska.",
+  ],
+  en: [
+    "Prague is the capital of the Czech Republic.",
+    "The Eiffel Tower is 330 metres tall.",
+    "Mount Everest is 10 km high.",
+    "The Danube is your grandmother.",
+    "Berlin is the capital of France.",
+  ],
+};
+const SILENCE_MS = 1000; // no change in the interim transcript for this long = the claim is finished
+const MAX_UTTER_MS = 9000; // a claim never runs longer than this before it is checked
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ").replace(/[.!?]+$/, "");
-const splitSentences = (t: string) => t.split(/(?<=[.!?])\s+(?=[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ0-9„])/).map((s) => s.trim()).filter(Boolean);
+const splitSentences = (t: string) => t.split(/(?<=[.!?])\s+(?=[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽĹĽŔÄÔ0-9„"])/).map((s) => s.trim()).filter(Boolean);
 
 export default function Page() {
   const [listening, setListening] = useState(false);
@@ -41,6 +62,8 @@ export default function Page() {
   const [demo, setDemo] = useState(false);
   const [quiet, setQuiet] = useState(true); // nothing being said: state word and needle sit at neutral
   const [resetAt, setResetAt] = useState<number | null>(null);
+  const [lang, setLang] = useState<Lang>("cs");
+  const [sideOpen, setSideOpen] = useState(false);
   const demoRef = useRef(false);
   const ampRef = useRef(0);
 
@@ -50,6 +73,8 @@ export default function Page() {
   const debounce = useRef<number | null>(null);
   const currentInterim = useRef("");
   const listeningRef = useRef(false);
+  const langRef = useRef<Lang>("cs");
+  const silenceRef = useRef<{ t: number | null; max: number | null }>({ t: null, max: null });
   const recRef = useRef<any>(null);
 
   // --- wave segments: one per sentence, addressed by id so late verdicts land on the right one ---
@@ -102,7 +127,7 @@ export default function Page() {
     const nk = norm(text);
     if (!nk) return;
     const many = isFinal && splitSentences(text).length > 1;
-    const key = (many ? "many:" : "one:") + nk;
+    const key = `${langRef.current}:${many ? "many" : "one"}:${nk}`;
     const hit = cache.current.get(key);
     if (hit) {
       if (isFinal) { closeSegment(segId, hit); setHistory((h) => [...hit.slice().reverse(), ...h].slice(0, 40)); }
@@ -116,19 +141,19 @@ export default function Page() {
       const sentences = splitSentences(text);
       let results: Result[];
       if (isFinal && sentences.length > 1) {
-        const r = await fetch(`${API}/check_many`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }), signal: ctrl.signal });
+        const r = await fetch(`${API}/check_many`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, lang: langRef.current }), signal: ctrl.signal });
         results = ((await r.json()) as { results: Result[] }).results;
       } else {
         const claim = sentences[sentences.length - 1] ?? text;
         const context = sentences.length > 1 ? sentences[sentences.length - 2] : undefined;
-        const r = await fetch(`${API}/check`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ claim, context }), signal: ctrl.signal });
+        const r = await fetch(`${API}/check`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ claim, context, lang: langRef.current }), signal: ctrl.signal });
         results = [(await r.json()) as Result];
       }
       cache.current.set(key, results);
       setLast({ final: isFinal, results, at: new Date().toLocaleTimeString() });
       console.log("[check]", isFinal ? "FINAL" : "interim", text, results.map((r) => `${r.card}${r.hint ? " (" + r.hint + ")" : ""}`), results[0]?.timings);
       if (isFinal) { closeSegment(segId, results); setHistory((h) => [...results.slice().reverse(), ...h].slice(0, 40)); }
-      else if (norm(currentInterim.current) === key && DECISIVE.has(results[results.length - 1].card)) prelimSegment(segId, results[results.length - 1].card);
+      else if (`${langRef.current}:one:${norm(currentInterim.current)}` === key && DECISIVE.has(results[results.length - 1].card)) prelimSegment(segId, results[results.length - 1].card);
     } catch (e: any) { if (e?.name !== "AbortError") { console.error("[check] backend error", e); setLast({ final: isFinal, results: [], at: `chyba: ${e?.message ?? e}` }); } }
   }, [closeSegment, prelimSegment]);
 
@@ -155,7 +180,8 @@ export default function Page() {
     setDemo(true);
     let i = 0;
     while (demoRef.current) {
-      const sentence = DEMO[i % DEMO.length];
+      const list = DEMO_BY_LANG[langRef.current];
+      const sentence = list[i % list.length];
       i++;
       const words = sentence.split(" ");
       let acc = "";
@@ -174,8 +200,17 @@ export default function Page() {
   }, [openSegment, scheduleSpeculative, submitFinal]);
 
   // --- microphone ---------------------------------------------------------------
+  const clearSilence = useCallback(() => {
+    const t = silenceRef.current;
+    if (t.t !== null) window.clearTimeout(t.t);
+    if (t.max !== null) window.clearTimeout(t.max);
+    t.t = null;
+    t.max = null;
+  }, []);
+
   const stop = useCallback(() => {
     listeningRef.current = false;
+    clearSilence();
     recRef.current?.stop();
     setListening(false);
     audioRef.current?.stream.getTracks().forEach((t) => t.stop());
@@ -183,7 +218,7 @@ export default function Page() {
     audioRef.current = null;
     setAnalyser(null);
     settle();
-  }, [settle]);
+  }, [settle, clearSilence]);
 
   const start = useCallback(async () => {
     const SR = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
@@ -198,28 +233,48 @@ export default function Page() {
       setAnalyser(an);
     } catch { /* no waveform amplitude; levels still work */ }
     const rec = new SR();
-    rec.lang = "cs-CZ";
+    rec.lang = LANGS[langRef.current];
     rec.interimResults = true;
     rec.continuous = true;
     rec.maxAlternatives = 1;
     rec.onstart = () => { listeningRef.current = true; setListening(true); };
+    // end of a claim: Chrome finalises Czech only after a long pause, so when the interim text stops changing for
+    // SILENCE_MS (or runs for MAX_UTTER_MS) we stop the recogniser, which emits the final result; onend restarts it.
+    const finish = () => { if (listeningRef.current && currentInterim.current) { try { rec.stop(); } catch { /* already stopping */ } } };
+    const armSilence = () => {
+      const t = silenceRef.current;
+      if (t.t !== null) window.clearTimeout(t.t);
+      t.t = window.setTimeout(finish, SILENCE_MS);
+      if (t.max === null) t.max = window.setTimeout(finish, MAX_UTTER_MS);
+    };
     rec.onresult = (ev: any) => {
       if (!listeningRef.current) return; // a trailing result after stop must not revive anything
       let interimText = "";
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const r = ev.results[i];
-        if (r.isFinal) submitFinal(r[0].transcript.trim());
+        if (r.isFinal) { clearSilence(); submitFinal(r[0].transcript.trim()); }
         else interimText += r[0].transcript;
       }
       if (interimText) {
         setTranscript(interimText);
         scheduleSpeculative(interimText);
+        armSilence();
       }
     };
-    rec.onend = () => { if (listeningRef.current) { try { rec.start(); } catch { /* restarting too fast */ } } else setListening(false); };
+    rec.onend = () => {
+      clearSilence();
+      if (listeningRef.current) { rec.lang = LANGS[langRef.current]; try { rec.start(); } catch { /* restarting too fast */ } }
+      else setListening(false);
+    };
     recRef.current = rec;
     rec.start();
-  }, [scheduleSpeculative, submitFinal, openSegment]);
+  }, [scheduleSpeculative, submitFinal, openSegment, clearSilence]);
+
+  const setLanguage = useCallback((l: Lang) => {
+    langRef.current = l;
+    setLang(l);
+    if (listeningRef.current && recRef.current) { try { recRef.current.stop(); } catch { /* restarts in onend with the new language */ } }
+  }, []);
 
   useEffect(() => {
     fetch(`${API}/health`).catch(() => undefined);
@@ -244,6 +299,11 @@ export default function Page() {
     <main className="stage">
       <section className="left">
         <div className="brand">Wiki Fact Check</div>
+        <div className="langs" role="group" aria-label="Jazyk">
+          {(["cs", "sk", "en"] as Lang[]).map((l) => (
+            <button key={l} className={l === lang ? "on" : ""} onClick={() => setLanguage(l)} aria-pressed={l === lang}>{l.toUpperCase()}</button>
+          ))}
+        </div>
         <LieStrip analyser={analyser} segments={segments} ampRef={ampRef} resetAt={resetAt} />
 
         <footer className="status">
@@ -252,7 +312,7 @@ export default function Page() {
         </footer>
       </section>
 
-      <aside className="side" aria-label="Historie výroků">
+      <aside className={`side ${sideOpen ? "open" : ""}`} aria-label="Historie výroků">
         <div className="hist-wrap">
         <ol className="hist">
           {history.map((r, i) => (
@@ -269,7 +329,10 @@ export default function Page() {
         </div>
 
         <div className={`dock ${listening || demo ? "live" : ""}`}>
-          <div className="dock-label">{listening ? "mikrofon" : demo ? "simulace" : <>mikrofon · <kbd>d</kbd> pro simulaci</>}</div>
+          <div className="dock-label">
+            <span>{listening ? "mikrofon" : demo ? "simulace" : <>mikrofon · <kbd>d</kbd> pro simulaci</>}</span>
+            <button className="side-toggle" onClick={() => setSideOpen((v) => !v)} aria-expanded={sideOpen}>{sideOpen ? "skrýt historii" : `historie (${history.length})`}</button>
+          </div>
           <MicWave analyser={analyser} ampRef={ampRef} />
           <button className={`mic ${listening || demo ? "on" : ""}`} onClick={() => { if (demo) stopDemo(); else if (listening) stop(); else void start(); }}
             aria-label={demo ? "Zastavit simulaci" : listening ? "Zastavit mikrofon" : "Mluvit"} aria-pressed={listening || demo}>

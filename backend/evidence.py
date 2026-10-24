@@ -11,7 +11,8 @@ import httpx
 INDEX_PATH = os.environ.get("WIKI_INDEX", os.path.join(os.path.dirname(__file__), "data", "wiki.sqlite"))
 UA = os.environ.get("WIKI_UA", "VorianFactcheck/0.1 (https://github.com/vorian; hackathon demo)")
 _client = httpx.Client(timeout=4.0, headers={"User-Agent": UA})
-_STOP = {"je", "jsou", "byl", "byla", "bylo", "má", "mají", "měří", "než", "ale", "nebo", "and", "the"}
+_STOP = {"je", "jsou", "byl", "byla", "bylo", "má", "mají", "měří", "než", "ale", "nebo", "and", "the",
+         "sú", "bol", "bola", "bolo", "meria", "alebo", "is", "are", "was", "were", "of", "in", "on", "at", "to", "has", "have", "than", "that", "this", "its", "by", "for", "with", "from", "as"}
 
 
 def _tokens(claim: str) -> list[str]:
@@ -36,12 +37,17 @@ def from_index(claim: str, limit: int = 2) -> list[dict]:
     return [{"title": t, "url": u, "text": i, "source": "index", "title_overlap": title_overlap(claim, t)} for t, u, i in rows]
 
 
-_UNIT = re.compile(r"^(km|m|cm|mm|kg|g|t|%|procent\w*|kilometr\w*|metr\w*|let|lidí|obyvatel\w*|rok\w*|hodin\w*|minut\w*)$")
+_UNIT = re.compile(r"^(km|m|cm|mm|kg|g|t|%|procent\w*|kilometr\w*|kilomet\w*|metr\w*|met(?:re|er)s?|mi|miles?|ft|feet|foot|let|lidí|ľudí|obyvatel\w*|obyvateľ\w*|rok\w*|hodin\w*|minut\w*|years?|people|inhabitants)$")
 _VERBISH = {"měří", "je", "jsou", "byl", "byla", "bylo", "byli", "má", "mají", "měl", "měla", "leží", "stojí", "vznikl",
             "vznikla", "vzniklo", "postaven", "postavena", "postaveno", "otevřen", "otevřena", "otevřeno", "narodil",
             "narodila", "zemřel", "zemřela", "dlouhý", "dlouhá", "dlouhé", "vysoký", "vysoká", "vysoké", "přes", "více",
             "méně", "než", "skoro", "asi", "přibližně", "zhruba", "celkem", "dnes", "včera", "také", "taky", "už", "ještě",
-            "roce", "roku", "letech", "století", "tvoje", "tvůj", "moje", "můj", "naše", "náš"}
+            "roce", "roku", "letech", "století", "tvoje", "tvůj", "moje", "můj", "naše", "náš",
+            # sk / en
+            "meria", "dlhý", "dlhá", "dlhé", "vysoký", "vysoká", "vysoké", "leží", "postavený", "postavená", "narodil", "zomrel",
+            "tvoja", "tvoj", "moja", "môj", "rokov", "roku", "viac", "menej", "približne", "asi", "cez",
+            "measures", "long", "high", "tall", "located", "lies", "built", "born", "died", "about", "approximately", "over",
+            "more", "less", "roughly", "around", "your", "my", "our", "year", "years", "percent", "people", "inhabitants", "the"}
 
 
 def _query_tokens(claim: str) -> list[str]:
@@ -57,10 +63,10 @@ def _query_tokens(claim: str) -> list[str]:
 _search_cache: dict[tuple[str, int], list[dict]] = {}
 
 
-def _search(q: str, limit: int, prefix: bool = False) -> list[dict]:
+def _search(q: str, limit: int, prefix: bool = False, lang: str = "cs") -> list[dict]:
     """Fulltext search (generator=search) or, with prefix=True, title prefix search – the way to get the nominative
     article for a declined object ("Česk" -> Česko, "Morav" -> Morava) without guessing Czech morphology."""
-    key = (q.lower(), limit, prefix)
+    key = (q.lower(), limit, prefix, lang)
     if key in _search_cache:
         return _search_cache[key]
     params = {
@@ -71,7 +77,7 @@ def _search(q: str, limit: int, prefix: bool = False) -> list[dict]:
         params.update({"generator": "prefixsearch", "gpssearch": q, "gpslimit": str(limit), "gpsnamespace": "0"})
     else:
         params.update({"generator": "search", "gsrsearch": q, "gsrlimit": str(limit), "gsrnamespace": "0"})
-    r = _client.get("https://cs.wikipedia.org/w/api.php", params=params)
+    r = _client.get(f"https://{lang}.wikipedia.org/w/api.php", params=params)
     r.raise_for_status()
     pages = r.json().get("query", {}).get("pages", [])
     pages.sort(key=lambda p: p.get("index", 99))
@@ -127,13 +133,13 @@ def _object_stem(ent: str) -> str:
     return ent[:-1] if len(ent) >= 4 else ent
 
 
-def object_docs(claim: str, toks: list[str], exclude_titles: set[str]) -> list[dict]:
+def object_docs(claim: str, toks: list[str], exclude_titles: set[str], lang: str = "cs") -> list[dict]:
     out = []
     for ent in _secondary_entities(toks):
         docs: list[dict] = []
         for q, lim, pre in ((_object_stem(ent), 8, True), (ent, 3, False)):
             try:
-                docs += _search(q, lim, pre)
+                docs += _search(q, lim, pre, lang)
             except Exception:  # noqa: BLE001
                 continue
         best = None
@@ -153,7 +159,7 @@ def object_docs(claim: str, toks: list[str], exclude_titles: set[str]) -> list[d
     return out
 
 
-def from_api(claim: str, limit: int = 2) -> list[dict]:
+def from_api(claim: str, limit: int = 2, lang: str = "cs") -> list[dict]:
     """Entity-first: search the likely entity, re-rank top hits by title overlap with the claim.
     Falls back to content words with shortening. Each doc carries title_overlap (0 = no entity match)."""
     toks = _query_tokens(claim)
@@ -166,25 +172,25 @@ def from_api(claim: str, limit: int = 2) -> list[dict]:
         if not q or q in seen:
             continue
         seen.add(q)
-        docs = _search(q, 5)
+        docs = _search(q, 5, False, lang)
         for d in docs:
             d["title_overlap"] = title_overlap(claim, d["title"] or "")
             d["title_score"] = title_score(claim, d["title"] or "", toks)
         hits = sorted([d for d in docs if d["title_overlap"] > 0], key=lambda d: -d["title_score"])
         if hits:
             subject = hits[:1]
-            return subject + object_docs(claim, toks, {d["title"] for d in subject})
+            return subject + object_docs(claim, toks, {d["title"] for d in subject}, lang)
         if docs and not best_docs:
             best_docs = docs[:limit]
     return best_docs
 
 
-def get_evidence(claim: str, limit: int = 2) -> list[dict]:
-    hits = from_index(claim, limit)
+def get_evidence(claim: str, limit: int = 2, lang: str = "cs") -> list[dict]:
+    hits = from_index(claim, limit) if lang == "cs" else []  # the local index holds Czech intros only
     if hits:
         return hits
     try:
-        return from_api(claim, limit)
+        return from_api(claim, limit, lang)
     except Exception as e:  # noqa: BLE001
         import traceback
         print(f"[evidence] Wikipedia lookup failed for {claim!r}: {e!r}")

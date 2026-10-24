@@ -33,10 +33,20 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 class CheckIn(BaseModel):
     claim: str
     context: Optional[str] = None  # previous sentence; supplies the entity when this one has none ("Je dlouhý 1000 km.")
+    lang: str = "cs"  # cs | sk | en: which Wikipedia to ask
 
 
 class TextIn(BaseModel):
     text: str
+    lang: str = "cs"
+
+
+_LANGS = {"cs", "sk", "en"}
+
+
+def _lang(v: str) -> str:
+    v = (v or "cs").lower()[:2]
+    return v if v in _LANGS else "cs"
 
 
 @app.get("/health")
@@ -46,7 +56,7 @@ def health():
 
 @app.post("/check")
 def check(body: CheckIn):
-    return check_one(body.claim.strip(), (body.context or "").strip() or None)
+    return check_one(body.claim.strip(), (body.context or "").strip() or None, _lang(body.lang))
 
 
 @app.post("/check_many")
@@ -55,22 +65,22 @@ def check_many(body: TextIn):
     sentences = split_sentences(body.text.strip())
     out, prev = [], None
     for s in sentences:
-        out.append(check_one(s, prev))
+        out.append(check_one(s, prev, _lang(body.lang)))
         prev = s
     return {"results": out}
 
 
-def check_one(claim: str, context: Optional[str]):
-    key = (claim.lower(), (context or "").lower())
+def check_one(claim: str, context: Optional[str], lang: str = "cs"):
+    key = (claim.lower(), (context or "").lower(), lang)
     hit = _results.get(key)
     if hit and time.time() - hit[0] < _RESULT_TTL:
         return {**hit[1], "cached": True}
-    res = _check_one(claim, context)
+    res = _check_one(claim, context, lang)
     _results[key] = (time.time(), res)
     return res
 
 
-def _check_one(claim: str, context: Optional[str]):
+def _check_one(claim: str, context: Optional[str], lang: str = "cs"):
     sw = Stopwatch()
     t = engine.claim_type(claim)
     sw.lap("type_ms")
@@ -81,9 +91,9 @@ def _check_one(claim: str, context: Optional[str]):
         return {**base, "card": "NEOVERITELNE", "hint": "Nelze ověřit: kauzální tvrzení, že někdo něco způsobil. Ověřit lze jen samotnou statistiku, a tu Wikipedie neeviduje.",
                 "evidence": None, "timings": _done(sw)}
 
-    docs = get_evidence(claim)
+    docs = get_evidence(claim, lang=lang)
     if (not docs or docs[0].get("title_overlap", 1) == 0) and context:
-        cdocs = get_evidence(context)
+        cdocs = get_evidence(context, lang=lang)
         if cdocs and cdocs[0].get("title_overlap", 1) > 0:
             docs = [{**d, "source": d["source"] + "+context"} for d in cdocs]
     sw.lap("evidence_ms")
