@@ -39,7 +39,6 @@ export default function Page() {
   const [typed, setTyped] = useState("");
   const [transcript, setTranscript] = useState("");
   const [demo, setDemo] = useState(false);
-  const [paused, setPaused] = useState(false);
   const demoRef = useRef(false);
   const ampRef = useRef(0);
 
@@ -210,7 +209,6 @@ export default function Page() {
       if (e.key === "/" && !inInput) { e.preventDefault(); setShowInput((v) => !v); }
       if ((e.key === "d" || e.key === "D") && !inInput) { e.preventDefault(); if (demoRef.current) stopDemo(); else void startDemo(); }
       if ((e.key === "i" || e.key === "I") && !inInput) { e.preventDefault(); setDebug((v) => !v); }
-      if ((e.key === "p" || e.key === "P") && !inInput) { e.preventDefault(); setPaused((v) => !v); }
       if (e.key === "Escape") { setShowInput(false); stopDemo(); }
     };
     window.addEventListener("keydown", onKey);
@@ -225,17 +223,7 @@ export default function Page() {
   return (
     <main className="stage">
       <section className="left">
-        <div className="controls">
-        <button className={`pause ${paused ? "on" : ""}`} onClick={() => setPaused((v) => !v)} aria-label={paused ? "Pokračovat v záznamu" : "Zastavit záznam"} aria-pressed={paused} title="p">
-          {paused ? (
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor" /></svg>
-          ) : (
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="6" y="5" width="4" height="14" fill="currentColor" /><rect x="14" y="5" width="4" height="14" fill="currentColor" /></svg>
-          )}
-        </button>
-        </div>
-
-        <LieStrip analyser={analyser} segments={segments} ampRef={ampRef} paused={paused} />
+        <LieStrip analyser={analyser} segments={segments} ampRef={ampRef} />
 
         <footer className="status">
           <div className={`state ${stateClass} ${lastSeg && !lastSeg.card && lastSeg.prelim ? "prelim" : ""}`}>{stateWord}</div>

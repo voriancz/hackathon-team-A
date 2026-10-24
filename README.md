@@ -61,8 +61,7 @@ Adresa backendu se dá přepsat přes `NEXT_PUBLIC_API` (výchozí `http://local
 
 | Klávesa / prvek | Co dělá |
 |---|---|
-| Tlačítko mikrofonu nebo **mezerník** | Start / stop poslechu |
-| **p** nebo tlačítko ⏸ vedle mikrofonu | Pauza seismografu; při pauze se dá scrollovat zpět kolečkem, trackpadem nebo tažením (drží posledních 30 minut) |
+| Tlačítko mikrofonu v sidebaru nebo **mezerník** | Start / stop poslechu; při poslechu je dole v sidebaru oscilloskop vstupu a tlačítko stop |
 | **d** | Demo bez mikrofonu: simulované „namlouvání" připravených vět (`DEMO` v `app/page.tsx`); totéž spustí URL `?demo` |
 | **/** | Skryté textové pole pro ručně napsaný výrok |
 | **i** | Debug overlay s odpověďmi backendu a časy |

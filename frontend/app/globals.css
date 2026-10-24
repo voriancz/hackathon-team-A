@@ -7,18 +7,11 @@
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
 
 .stage { height: 100vh; display: grid; grid-template-columns: 70% 30%; }
-.left { display: grid; grid-template-rows: auto 1fr auto; justify-items: center; align-items: center; padding: 32px 32px 20px; min-width: 0; }
+.left { display: grid; grid-template-rows: 1fr auto; justify-items: center; align-items: center; padding: 32px 32px 20px; min-width: 0; }
 .mic { width: 84px; height: 84px; border-radius: 50%; border: 0; background: var(--ink); color: var(--bg); display: grid; place-items: center; cursor: pointer; transition: transform .12s, box-shadow .2s; box-shadow: 0 1px 0 rgba(0,0,0,.08); }
 .mic:hover { transform: scale(1.04); }
 .mic:focus-visible { outline: 2px solid var(--ink); outline-offset: 5px; }
 .wave { width: 100%; height: 50vh; display: block; align-self: center; touch-action: none; }
-.wave.paused { cursor: grab; }
-.wave.paused:active { cursor: grabbing; }
-.controls { display: grid; place-items: center; }
-.pause { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--rule); background: transparent; color: var(--ink); display: grid; place-items: center; cursor: pointer; opacity: .55; transition: opacity .15s, background .15s; }
-.pause:hover, .pause.on { opacity: 1; }
-.pause.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-.pause:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 
 .status { display: grid; justify-items: center; gap: 6px; font-family: var(--mono); width: 100%; }
 .state { font-size: 1.05rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--neutral); transition: color .2s; }
