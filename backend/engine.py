@@ -136,8 +136,11 @@ _RELS = {
 _CAPW = r"[A-ZÁ-Ž][\wá-ž]{2,}"
 _REL_CLAIM = re.compile(
     r"^\s*(?P<x>\S+(?:\s+\S+)?)\s+je\s+(?i:" + "|".join(f"(?P<{k}>{v})" for k, v in _RELS.items()) + r")\s+(?P<y>[^.,!?]+)", re.U)
-_REL_AFTER = {k: re.compile(r"(?i:" + v + r")\s+(?:\S+\s+){0,5}?je\s+(?P<z>" + _CAPW + ")", re.U) for k, v in _RELS.items()}
-_REL_BEFORE = {k: re.compile(r"(?P<z>" + _CAPW + r")[^;]{0,60}?\bje\s+(?:\S+\s+){0,3}?(?i:" + v + ")", re.U) for k, v in _RELS.items()}
+_REL_AFTER = {k: re.compile(r"(?P<rel>(?i:" + v + r"))\s+(?:\S+\s+){0,5}?je\s+(?P<z>" + _CAPW + ")", re.U) for k, v in _RELS.items()}
+# subject-first definition sentence: "Sněžka (polsky Śnieżka, 1603 m n. m.) je se svou výškou … nejvyšší horou Česka" – anchored at the
+# sentence start so a sentence-initial word like "Vzhledem" is never taken for the subject
+_REL_BEFORE = {k: re.compile(r"^(?P<z>" + _CAPW + r")(?:\s+[\wá-ž]+)?(?:\s*\([^)]*\))?(?:,[^,]*,)?\s+je\s+(?:\S+\s+){0,8}?(?P<rel>(?i:" + v + "))", re.U) for k, v in _RELS.items()}
+_ORDINAL = re.compile(r"\b(?:druh|třet|čtvrt|pát|šest|sedm|osm|devát|desát)[\wá-ž]*\s*$")
 _PREP = {"v", "ve", "na", "z", "ze"}
 
 
@@ -168,9 +171,11 @@ def relation_check(claim: str, sentences: list[str], title: str = "") -> Optiona
     for s in sentences:
         if not about_y and _st(y) not in s.lower():
             continue
+        if "není" in s or "nebyl" in s:
+            continue
         for rx in (_REL_AFTER[rel], _REL_BEFORE[rel]):
             mm = rx.search(s)
-            if mm:
+            if mm and not _ORDINAL.search(s[max(0, mm.start("rel") - 24):mm.start("rel")].lower()):
                 return _same(mm.group("z"), x), s
     return None
 
