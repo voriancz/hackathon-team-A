@@ -223,6 +223,7 @@ export default function Page() {
   return (
     <main className="stage">
       <section className="left">
+        <div className="brand">Wiki Fact Check</div>
         <LieStrip analyser={analyser} segments={segments} ampRef={ampRef} />
 
         <footer className="status">
@@ -232,7 +233,6 @@ export default function Page() {
       </section>
 
       <aside className="side" aria-label="Historie výroků">
-        <div className="brand" aria-label="Wiki Fact Check">Wiki Fact Check</div>
         <div className="hist-wrap">
         <ol className="hist">
           {history.map((r, i) => (
