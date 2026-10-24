@@ -1,0 +1,18 @@
+[
+  {"claim": "Tunel Blanka měří 100 km.", "expected": "NEPRAVDA"},
+  {"claim": "Tunel Blanka měří 5,5 km.", "expected": "PRAVDA"},
+  {"claim": "Tunel Blanka je tvoje bába.", "expected": "NESMYSL"},
+  {"claim": "Sněžka je nejvyšší hora Česka.", "expected": "PRAVDA"},
+  {"claim": "Sněžka měří 3000 metrů.", "expected": "NEPRAVDA"},
+  {"claim": "Petřínská rozhledna je vysoká 63,5 metru.", "expected": "PRAVDA"},
+  {"claim": "Karlův most byl postaven v roce 1990.", "expected": "NEPRAVDA"},
+  {"claim": "Vltava je nejdelší řeka v Česku.", "expected": "PRAVDA"},
+  {"claim": "Brno je hlavní město Česka.", "expected": "NEPRAVDA"},
+  {"claim": "Praha má přes milion obyvatel.", "expected": "PRAVDA"},
+  {"claim": "Praha je nejkrásnější město na světě.", "expected": "NESMYSL"},
+  {"claim": "Kolik měří Karlův most?", "expected": "NESMYSL"},
+  {"claim": "Měří sto.", "expected": "NESMYSL"},
+  {"claim": "Pražský hrad létá každou neděli do Brna.", "expected": "NESMYSL"},
+  {"claim": "Můj soused má tři psy.", "expected": "NEOVERITELNE"},
+  {"claim": "Ještěd je vysílač a hotel na stejnojmenné hoře u Liberce.", "expected": "PRAVDA"}
+]

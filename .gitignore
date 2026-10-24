@@ -1,0 +1,9 @@
+node_modules/
+.next/
+__pycache__/
+*.pyc
+.venv/
+backend/data/wiki.sqlite
+.env*
+.DS_Store
+tsconfig.tsbuildinfo
