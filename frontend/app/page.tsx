@@ -9,8 +9,35 @@ const API = process.env.NEXT_PUBLIC_API ?? "http://localhost:8000";
 type Card = "PRAVDA" | "NEPRAVDA" | "NESMYSL" | "NEOVERITELNE";
 type Result = { claim: string; card: Card; hint?: string; evidence?: { sentence: string | null; title: string; url: string; entail: number; contra: number; by_rule: boolean; source?: string } | null; timings?: Record<string, number>; type?: { label: string } };
 const DECISIVE = new Set<Card>(["PRAVDA", "NEPRAVDA"]);
-const STATE: Record<Card, string> = { PRAVDA: "pravda", NEPRAVDA: "nepravda", NESMYSL: "nesmysl", NEOVERITELNE: "neutrální" };
-const TAG: Record<Card, string> = { PRAVDA: "pravda", NEPRAVDA: "nepravda", NESMYSL: "nesmysl", NEOVERITELNE: "nelze ověřit" };
+type Lang = "cs" | "sk" | "en";
+type Strings = {
+  state: Record<Card, string>; tag: Record<Card, string>; axis: [string, string, string];
+  mic: string; demo: string; demoHint: string; history: string; hideHistory: string;
+  speak: string; stopMic: string; stopDemo: string; claim: string; historyAria: string; language: string;
+};
+const UI: Record<Lang, Strings> = {
+  cs: {
+    state: { PRAVDA: "pravda", NEPRAVDA: "nepravda", NESMYSL: "nesmysl", NEOVERITELNE: "neutrální" },
+    tag: { PRAVDA: "pravda", NEPRAVDA: "nepravda", NESMYSL: "nesmysl", NEOVERITELNE: "nelze ověřit" },
+    axis: ["pravda", "neutrální", "nepravda"], mic: "mikrofon", demo: "simulace", demoHint: "pro simulaci",
+    history: "historie", hideHistory: "skrýt historii", speak: "Mluvit", stopMic: "Zastavit mikrofon", stopDemo: "Zastavit simulaci",
+    claim: "Výrok", historyAria: "Historie výroků", language: "Jazyk",
+  },
+  sk: {
+    state: { PRAVDA: "pravda", NEPRAVDA: "nepravda", NESMYSL: "nezmysel", NEOVERITELNE: "neutrálne" },
+    tag: { PRAVDA: "pravda", NEPRAVDA: "nepravda", NESMYSL: "nezmysel", NEOVERITELNE: "nedá sa overiť" },
+    axis: ["pravda", "neutrálne", "nepravda"], mic: "mikrofón", demo: "simulácia", demoHint: "pre simuláciu",
+    history: "história", hideHistory: "skryť históriu", speak: "Hovoriť", stopMic: "Zastaviť mikrofón", stopDemo: "Zastaviť simuláciu",
+    claim: "Výrok", historyAria: "História výrokov", language: "Jazyk",
+  },
+  en: {
+    state: { PRAVDA: "true", NEPRAVDA: "false", NESMYSL: "nonsense", NEOVERITELNE: "neutral" },
+    tag: { PRAVDA: "true", NEPRAVDA: "false", NESMYSL: "nonsense", NEOVERITELNE: "unverifiable" },
+    axis: ["true", "neutral", "false"], mic: "microphone", demo: "simulation", demoHint: "for simulation",
+    history: "history", hideHistory: "hide history", speak: "Speak", stopMic: "Stop microphone", stopDemo: "Stop simulation",
+    claim: "Claim", historyAria: "Claim history", language: "Language",
+  },
+};
 
 // Simulation script: typed word by word, checked continuously, like speech. Key "d" or ?demo.
 const DEMO = [
@@ -23,7 +50,6 @@ const DEMO = [
   "Brno je hlavní město Česka.",
   "Praha má přes milion obyvatel.",
 ];
-type Lang = "cs" | "sk" | "en";
 const LANGS: Record<Lang, string> = { cs: "cs-CZ", sk: "sk-SK", en: "en-US" };
 const DEMO_BY_LANG: Record<Lang, string[]> = {
   cs: DEMO,
@@ -292,19 +318,21 @@ export default function Page() {
   }, [start, stop, startDemo, stopDemo]);
 
   const lastSeg = segments[segments.length - 1];
-  const stateWord = quiet ? "neutrální" : lastSeg?.card ? STATE[lastSeg.card as Card] : lastSeg?.prelim ? STATE[lastSeg.prelim as Card] : "neutrální";
-  const stateClass = stateWord === "pravda" ? "t" : stateWord === "nepravda" ? "f" : stateWord === "nesmysl" ? "s" : "n";
+  const T = UI[lang];
+  const stateCard: Card | null = quiet ? null : lastSeg?.card ? (lastSeg.card as Card) : lastSeg?.prelim ? (lastSeg.prelim as Card) : null;
+  const stateWord = stateCard ? T.state[stateCard] : T.state.NEOVERITELNE;
+  const stateClass = stateCard === "PRAVDA" ? "t" : stateCard === "NEPRAVDA" ? "f" : stateCard === "NESMYSL" ? "s" : "n";
 
   return (
     <main className="stage">
       <section className="left">
         <div className="brand">Wiki Fact Check</div>
-        <div className="langs" role="group" aria-label="Jazyk">
+        <div className="langs" role="group" aria-label={T.language}>
           {(["cs", "sk", "en"] as Lang[]).map((l) => (
             <button key={l} className={l === lang ? "on" : ""} onClick={() => setLanguage(l)} aria-pressed={l === lang}>{l.toUpperCase()}</button>
           ))}
         </div>
-        <LieStrip analyser={analyser} segments={segments} ampRef={ampRef} resetAt={resetAt} />
+        <LieStrip analyser={analyser} segments={segments} ampRef={ampRef} resetAt={resetAt} labels={T.axis} />
 
         <footer className="status">
           <div className={`state ${stateClass} ${!quiet && lastSeg && !lastSeg.card && lastSeg.prelim ? "prelim" : ""}`}>{stateWord}</div>
@@ -312,12 +340,12 @@ export default function Page() {
         </footer>
       </section>
 
-      <aside className={`side ${sideOpen ? "open" : ""}`} aria-label="Historie výroků">
+      <aside className={`side ${sideOpen ? "open" : ""}`} aria-label={T.historyAria}>
         <div className="hist-wrap">
         <ol className="hist">
           {history.map((r, i) => (
             <li key={i} className={r.card.toLowerCase()}>
-              <span className="tag">{TAG[r.card]}</span>
+              <span className="tag">{T.tag[r.card]}</span>
               <p className="claim">{r.claim}</p>
               {r.hint && <p className="ev">{r.hint}</p>}
               {r.evidence?.sentence && (
@@ -330,12 +358,12 @@ export default function Page() {
 
         <div className={`dock ${listening || demo ? "live" : ""}`}>
           <div className="dock-label">
-            <span>{listening ? "mikrofon" : demo ? "simulace" : <>mikrofon · <kbd>d</kbd> pro simulaci</>}</span>
-            <button className="side-toggle" onClick={() => setSideOpen((v) => !v)} aria-expanded={sideOpen}>{sideOpen ? "skrýt historii" : `historie (${history.length})`}</button>
+            <span>{listening ? T.mic : demo ? T.demo : <>{T.mic} · <kbd>d</kbd> {T.demoHint}</>}</span>
+            <button className="side-toggle" onClick={() => setSideOpen((v) => !v)} aria-expanded={sideOpen}>{sideOpen ? T.hideHistory : `${T.history} (${history.length})`}</button>
           </div>
           <MicWave analyser={analyser} ampRef={ampRef} />
           <button className={`mic ${listening || demo ? "on" : ""}`} onClick={() => { if (demo) stopDemo(); else if (listening) stop(); else void start(); }}
-            aria-label={demo ? "Zastavit simulaci" : listening ? "Zastavit mikrofon" : "Mluvit"} aria-pressed={listening || demo}>
+            aria-label={demo ? T.stopDemo : listening ? T.stopMic : T.speak} aria-pressed={listening || demo}>
             {listening || demo ? (
               <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" /></svg>
             ) : (
@@ -369,7 +397,7 @@ export default function Page() {
 
       {showInput && (
         <form className="hidden-input" onSubmit={(e) => { e.preventDefault(); submitFinal(typed.trim()); setTyped(""); }}>
-          <input autoFocus value={typed} onChange={(e) => { setTyped(e.target.value); scheduleSpeculative(e.target.value); }} aria-label="Výrok" autoComplete="off" />
+          <input autoFocus value={typed} onChange={(e) => { setTyped(e.target.value); scheduleSpeculative(e.target.value); }} aria-label={T.claim} autoComplete="off" />
         </form>
       )}
     </main>

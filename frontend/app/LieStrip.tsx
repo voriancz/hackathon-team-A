@@ -10,7 +10,7 @@ const KEEP_MS = 30 * 60 * 1000; // history kept for scrolling back
 
 /** Truth seismograph. Height = verdict (up true, down false, middle neutral), needle swing = voice.
  *  While `paused` the paper stops; wheel, trackpad or drag scrolls back through the recorded history. */
-export default function LieStrip({ analyser, segments, ampRef, windowMs = 7000, paused = false, resetAt = null }: { analyser: AnalyserNode | null; segments: Seg[]; ampRef?: MutableRefObject<number>; windowMs?: number; paused?: boolean; resetAt?: number | null }) {
+export default function LieStrip({ analyser, segments, ampRef, windowMs = 7000, paused = false, resetAt = null, labels = ["pravda", "neutrální", "nepravda"] }: { analyser: AnalyserNode | null; segments: Seg[]; ampRef?: MutableRefObject<number>; windowMs?: number; paused?: boolean; resetAt?: number | null; labels?: [string, string, string] }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const samples = useRef<{ t: number; v: number; r: number }[]>([]);
   const segRef = useRef(segments);
@@ -18,6 +18,8 @@ export default function LieStrip({ analyser, segments, ampRef, windowMs = 7000, 
   const frozenAt = useRef<number | null>(null); // time shown at the right edge while paused
   const backMs = useRef(0); // how far the view is scrolled back from frozenAt
   const resetRef = useRef<number | null>(resetAt);
+  const labelsRef = useRef(labels);
+  labelsRef.current = labels;
   segRef.current = segments;
   anRef.current = analyser;
   resetRef.current = resetAt;
@@ -164,9 +166,9 @@ export default function LieStrip({ analyser, segments, ampRef, windowMs = 7000, 
       ctx.globalAlpha = 0.6;
       ctx.fillStyle = C_INK;
       ctx.font = "12px ui-monospace, 'SF Mono', Menlo, monospace";
-      ctx.fillText("pravda", 16, mid - lift - 8);
-      ctx.fillText("neutrální", 16, mid - 8);
-      ctx.fillText("nepravda", 16, mid + lift - 8);
+      ctx.fillText(labelsRef.current[0], 16, mid - lift - 8);
+      ctx.fillText(labelsRef.current[1], 16, mid - 8);
+      ctx.fillText(labelsRef.current[2], 16, mid + lift - 8);
       if (frozenAt.current !== null) {
         const back = backMs.current;
         const label = back > 100 ? `pauza · −${(back / 1000).toFixed(1)} s` : "pauza";

@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from engine import Engine, HINTS, Stopwatch, causal_claim, grounding, nonsense_marker, relation_check, split_sentences
+from engine import Engine, Stopwatch, causal_claim, grounding, nonsense_marker, relation_check, split_sentences
 from evidence import get_evidence
 
 engine: Optional[Engine] = None
@@ -42,6 +42,44 @@ class TextIn(BaseModel):
 
 
 _LANGS = {"cs", "sk", "en"}
+
+# user-facing hints per language; {title} and {missing} are filled in, {e}/{c} are the NLI scores
+MSG = {
+    "cs": {
+        "nazor": "To je názor, ne ověřitelné tvrzení.", "otazka": "To je otázka, ne tvrzení.",
+        "nesmysl": "Věta nedává smysl jako tvrzení.", "neuplne": "Věta je neúplná, chybí tvrzení.",
+        "causal": "Nelze ověřit: kauzální tvrzení, že někdo něco způsobil. Ověřit lze jen samotnou statistiku, a tu Wikipedie neeviduje.",
+        "nosource": "Nelze ověřit: k výroku jsem nenašel žádný zdroj.",
+        "nosubject": "Nelze ověřit: k podmětu výroku jsem nenašel žádný článek.",
+        "nonsense_src": "Věta nedává smysl jako tvrzení: zdroj {title} o „{missing}“ nic neříká.",
+        "ungrounded": "Nelze ověřit: zdroj {title} o „{missing}“ nic neříká.",
+        "undecided": "Nelze ověřit: zdroj {title} výrok nepotvrzuje ani nevyvrací (souhlas {e} %, rozpor {c} %).",
+    },
+    "sk": {
+        "nazor": "To je názor, nie overiteľné tvrdenie.", "otazka": "To je otázka, nie tvrdenie.",
+        "nesmysl": "Veta nedáva zmysel ako tvrdenie.", "neuplne": "Veta je neúplná, chýba tvrdenie.",
+        "causal": "Nedá sa overiť: kauzálne tvrdenie, že niekto niečo spôsobil. Overiť sa dá len samotná štatistika, a tú Wikipédia neeviduje.",
+        "nosource": "Nedá sa overiť: k výroku som nenašiel žiadny zdroj.",
+        "nosubject": "Nedá sa overiť: k podmetu výroku som nenašiel žiadny článok.",
+        "nonsense_src": "Veta nedáva zmysel ako tvrdenie: zdroj {title} o „{missing}“ nič nehovorí.",
+        "ungrounded": "Nedá sa overiť: zdroj {title} o „{missing}“ nič nehovorí.",
+        "undecided": "Nedá sa overiť: zdroj {title} výrok nepotvrdzuje ani nevyvracia (súhlas {e} %, rozpor {c} %).",
+    },
+    "en": {
+        "nazor": "That is an opinion, not a checkable claim.", "otazka": "That is a question, not a claim.",
+        "nesmysl": "The sentence makes no sense as a claim.", "neuplne": "The sentence is incomplete, there is no claim.",
+        "causal": "Unverifiable: a causal claim that someone caused something. Only the statistic itself could be checked, and Wikipedia does not keep it.",
+        "nosource": "Unverifiable: I found no source for this claim.",
+        "nosubject": "Unverifiable: I found no article about the subject of the claim.",
+        "nonsense_src": "The sentence makes no sense as a claim: the source {title} says nothing about “{missing}”.",
+        "ungrounded": "Unverifiable: the source {title} says nothing about “{missing}”.",
+        "undecided": "Unverifiable: the source {title} neither confirms nor refutes the claim (agreement {e} %, contradiction {c} %).",
+    },
+}
+
+
+def msg(lang: str, key: str, **kw) -> str:
+    return MSG.get(lang, MSG["cs"]).get(key, "").format(**kw)
 
 
 def _lang(v: str) -> str:
@@ -86,9 +124,9 @@ def _check_one(claim: str, context: Optional[str], lang: str = "cs"):
     sw.lap("type_ms")
     base = {"claim": claim, "type": {"label": t.label, "score": round(t.score, 3), "probs": {k: round(v, 3) for k, v in t.probs.items()}}}
     if t.label != "fakticke":
-        return {**base, "card": "NESMYSL", "hint": HINTS.get(t.label, ""), "evidence": None, "timings": _done(sw)}
+        return {**base, "card": "NESMYSL", "hint": msg(lang, t.label), "evidence": None, "timings": _done(sw)}
     if causal_claim(claim):
-        return {**base, "card": "NEOVERITELNE", "hint": "Nelze ověřit: kauzální tvrzení, že někdo něco způsobil. Ověřit lze jen samotnou statistiku, a tu Wikipedie neeviduje.",
+        return {**base, "card": "NEOVERITELNE", "hint": msg(lang, "causal"),
                 "evidence": None, "timings": _done(sw)}
 
     docs = get_evidence(claim, lang=lang)
@@ -98,19 +136,19 @@ def _check_one(claim: str, context: Optional[str], lang: str = "cs"):
             docs = [{**d, "source": d["source"] + "+context"} for d in cdocs]
     sw.lap("evidence_ms")
     if not docs:
-        return {**base, "card": "NEOVERITELNE", "hint": "Nelze ověřit: k výroku jsem nenašel žádný zdroj.", "evidence": None, "timings": _done(sw)}
+        return {**base, "card": "NEOVERITELNE", "hint": msg(lang, "nosource"), "evidence": None, "timings": _done(sw)}
 
     if docs[0].get("title_overlap", 1) == 0:
-        return {**base, "card": "NEOVERITELNE", "hint": "Nelze ověřit: k podmětu výroku jsem nenašel žádný článek.", "evidence": None, "timings": _done(sw)}
+        return {**base, "card": "NEOVERITELNE", "hint": msg(lang, "nosubject"), "evidence": None, "timings": _done(sw)}
 
     # Nonsense check: claim words must relate to the article found (numbers are handled by the numeric rule)
     ok, missing = grounding(claim, docs[0]["text"], docs[0]["title"] or "")
     if not ok:
         sw.lap("grounding_ms")
         if nonsense_marker(claim):
-            hint = f"Věta nedává smysl jako tvrzení: zdroj {docs[0]['title']} o „{' '.join(missing)}“ nic neříká."
+            hint = msg(lang, "nonsense_src", title=docs[0]["title"], missing=" ".join(missing))
             return {**base, "card": "NESMYSL", "hint": hint, "evidence": None, "timings": _done(sw)}
-        hint = f"Nelze ověřit: zdroj {docs[0]['title']} o „{' '.join(missing)}“ nic neříká."
+        hint = msg(lang, "ungrounded", title=docs[0]["title"], missing=" ".join(missing))
         return {**base, "card": "NEOVERITELNE", "hint": hint, "evidence": {"sentence": None, "title": docs[0]["title"], "url": docs[0]["url"], "entail": 0, "contra": 0, "by_rule": True, "source": docs[0]["source"]}, "timings": _done(sw)}
 
     # relation rule first (capital city, highest mountain, longest river, largest city): decided from the text, no NLI
@@ -136,8 +174,7 @@ def _check_one(claim: str, context: Optional[str], lang: str = "cs"):
     sw.lap("verdict_ms")
     hint = ""
     if best["card"] == "NEOVERITELNE":
-        hint = (f"Nelze ověřit: zdroj {best['title']} výrok nepotvrzuje ani nevyvrací "
-                f"(souhlas {round(best['entail'] * 100)} %, rozpor {round(best['contra'] * 100)} %).")
+        hint = msg(lang, "undecided", title=best["title"], e=round(best["entail"] * 100), c=round(best["contra"] * 100))
     return {**base, "card": best["card"], "hint": hint, "evidence": best, "timings": _done(sw)}
 
 
