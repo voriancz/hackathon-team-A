@@ -10,15 +10,17 @@ const KEEP_MS = 30 * 60 * 1000; // history kept for scrolling back
 
 /** Truth seismograph. Height = verdict (up true, down false, middle neutral), needle swing = voice.
  *  While `paused` the paper stops; wheel, trackpad or drag scrolls back through the recorded history. */
-export default function LieStrip({ analyser, segments, ampRef, windowMs = 7000, paused = false }: { analyser: AnalyserNode | null; segments: Seg[]; ampRef?: MutableRefObject<number>; windowMs?: number; paused?: boolean }) {
+export default function LieStrip({ analyser, segments, ampRef, windowMs = 7000, paused = false, resetAt = null }: { analyser: AnalyserNode | null; segments: Seg[]; ampRef?: MutableRefObject<number>; windowMs?: number; paused?: boolean; resetAt?: number | null }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const samples = useRef<{ t: number; v: number; r: number }[]>([]);
   const segRef = useRef(segments);
   const anRef = useRef(analyser);
   const frozenAt = useRef<number | null>(null); // time shown at the right edge while paused
   const backMs = useRef(0); // how far the view is scrolled back from frozenAt
+  const resetRef = useRef<number | null>(resetAt);
   segRef.current = segments;
   anRef.current = analyser;
+  resetRef.current = resetAt;
 
   useEffect(() => {
     frozenAt.current = paused ? performance.now() : null;
@@ -85,6 +87,8 @@ export default function LieStrip({ analyser, segments, ampRef, windowMs = 7000, 
       }
       // after a sentence the needle holds its verdict, then relaxes to neutral
       if (!held) return { level: 0, card: null };
+      // after a stop the needle drops to neutral at once; the past keeps its colours
+      if (resetRef.current !== null && t >= resetRef.current && (held.end as number) <= resetRef.current) return { level: 0, card: null };
       const age = t - (held.end as number);
       const lv = held.card ? LEVEL[held.card] ?? 0 : 0;
       const k = age < HOLD_MS ? 1 : Math.max(0, 1 - (age - HOLD_MS) / 1500);

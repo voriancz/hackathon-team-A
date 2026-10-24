@@ -39,6 +39,8 @@ export default function Page() {
   const [typed, setTyped] = useState("");
   const [transcript, setTranscript] = useState("");
   const [demo, setDemo] = useState(false);
+  const [quiet, setQuiet] = useState(true); // nothing being said: state word and needle sit at neutral
+  const [resetAt, setResetAt] = useState<number | null>(null);
   const demoRef = useRef(false);
   const ampRef = useRef(0);
 
@@ -56,6 +58,7 @@ export default function Page() {
     if (openSegIdRef.current !== null) return openSegIdRef.current;
     const id = start;
     openSegIdRef.current = id;
+    setQuiet(false);
     setSegments((segs) => [...segs.filter((x) => x.end === null || x.end > start - 60000), { id, start, end: null, card: null, prelim: null }]);
     return id;
   }, []);
@@ -69,7 +72,8 @@ export default function Page() {
       const i = segs.findIndex((x) => x.id === id);
       if (i < 0) return segs;
       const seg = segs[i];
-      const end = seg.end ?? now;
+      if (seg.end !== null) return segs; // already settled by a stop: a late verdict must not revive it
+      const end = now;
       const n = results.length;
       const slot = Math.max(600, (end - seg.start) / n);
       const closed: Seg[] = results.map((r, k) => ({
@@ -77,6 +81,20 @@ export default function Page() {
       }));
       return [...segs.slice(0, i), ...closed, ...segs.slice(i + 1)];
     });
+  }, []);
+
+  /** Stop of the mic or the demo: close whatever is open without a verdict and bring everything back to neutral at once. */
+  const settle = useCallback(() => {
+    const now = performance.now();
+    openSegIdRef.current = null;
+    setSegments((segs) => segs.map((x) => (x.end === null ? { ...x, end: now, card: null, prelim: null } : x)));
+    setResetAt(now);
+    setQuiet(true);
+    setTranscript("");
+    currentInterim.current = "";
+    if (debounce.current !== null) { window.clearTimeout(debounce.current); debounce.current = null; }
+    inflight.current?.abort();
+    inflight.current = null;
   }, []);
 
   // --- speculative checking: interim text is checked while you speak ----------
@@ -130,7 +148,7 @@ export default function Page() {
   }, [check, openSegment]);
 
   // --- simulation: "types" sentences word by word through the same pipeline ----
-  const stopDemo = useCallback(() => { demoRef.current = false; ampRef.current = 0; setDemo(false); }, []);
+  const stopDemo = useCallback(() => { demoRef.current = false; ampRef.current = 0; setDemo(false); settle(); }, [settle]);
   const startDemo = useCallback(async () => {
     if (demoRef.current) return;
     demoRef.current = true;
@@ -164,7 +182,8 @@ export default function Page() {
     audioRef.current?.ac.close().catch(() => undefined);
     audioRef.current = null;
     setAnalyser(null);
-  }, []);
+    settle();
+  }, [settle]);
 
   const start = useCallback(async () => {
     const SR = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
@@ -185,6 +204,7 @@ export default function Page() {
     rec.maxAlternatives = 1;
     rec.onstart = () => { listeningRef.current = true; setListening(true); };
     rec.onresult = (ev: any) => {
+      if (!listeningRef.current) return; // a trailing result after stop must not revive anything
       let interimText = "";
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const r = ev.results[i];
@@ -217,17 +237,17 @@ export default function Page() {
   }, [start, stop, startDemo, stopDemo]);
 
   const lastSeg = segments[segments.length - 1];
-  const stateWord = lastSeg?.card ? STATE[lastSeg.card as Card] : lastSeg?.prelim ? STATE[lastSeg.prelim as Card] : "neutrální";
+  const stateWord = quiet ? "neutrální" : lastSeg?.card ? STATE[lastSeg.card as Card] : lastSeg?.prelim ? STATE[lastSeg.prelim as Card] : "neutrální";
   const stateClass = stateWord === "pravda" ? "t" : stateWord === "nepravda" ? "f" : stateWord === "nesmysl" ? "s" : "n";
 
   return (
     <main className="stage">
       <section className="left">
         <div className="brand">Wiki Fact Check</div>
-        <LieStrip analyser={analyser} segments={segments} ampRef={ampRef} />
+        <LieStrip analyser={analyser} segments={segments} ampRef={ampRef} resetAt={resetAt} />
 
         <footer className="status">
-          <div className={`state ${stateClass} ${lastSeg && !lastSeg.card && lastSeg.prelim ? "prelim" : ""}`}>{stateWord}</div>
+          <div className={`state ${stateClass} ${!quiet && lastSeg && !lastSeg.card && lastSeg.prelim ? "prelim" : ""}`}>{stateWord}</div>
           <div className="line">{transcript || (demo ? "…" : "")}</div>
         </footer>
       </section>
@@ -248,26 +268,22 @@ export default function Page() {
         </ol>
         </div>
 
-        {listening || demo ? (
-          <div className="dock live">
-            <div className="dock-label">{demo ? "simulace" : "mikrofon"}</div>
-            <MicWave analyser={analyser} ampRef={ampRef} />
-            <button className="stop" onClick={() => { if (demo) stopDemo(); else stop(); }} aria-label={demo ? "Zastavit simulaci" : "Zastavit mikrofon"}>
-              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" /></svg>
-            </button>
-          </div>
-        ) : (
-          <div className="dock idle">
-            <button className="mic" onClick={() => void start()} aria-label="Mluvit">
-              <svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true">
+        <div className={`dock ${listening || demo ? "live" : ""}`}>
+          <div className="dock-label">{listening ? "mikrofon" : demo ? "simulace" : <>mikrofon · <kbd>d</kbd> pro simulaci</>}</div>
+          <MicWave analyser={analyser} ampRef={ampRef} />
+          <button className={`mic ${listening || demo ? "on" : ""}`} onClick={() => { if (demo) stopDemo(); else if (listening) stop(); else void start(); }}
+            aria-label={demo ? "Zastavit simulaci" : listening ? "Zastavit mikrofon" : "Mluvit"} aria-pressed={listening || demo}>
+            {listening || demo ? (
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" /></svg>
+            ) : (
+              <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
                 <rect x="9" y="3" width="6" height="12" rx="3" fill="currentColor" />
                 <path d="M5 11a7 7 0 0 0 14 0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                 <path d="M12 18v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
               </svg>
-            </button>
-            <p className="hint"><kbd>d</kbd> pro simulaci</p>
-          </div>
-        )}
+            )}
+          </button>
+        </div>
       </aside>
 
       {debug && (
