@@ -46,7 +46,7 @@ _UNITS = {
     "mi": ("len", 1609.344), "mile": ("len", 1609.344), "miles": ("len", 1609.344),
     "ft": ("len", 0.3048), "foot": ("len", 0.3048), "feet": ("len", 0.3048), "percent": ("pct", 1.0),
 }
-_NUM = re.compile(r"(?<![\w,.])(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{1,3}(?:[  ]\d{3})+|\d+(?:[.,]\d+)?)\s*([a-zA-Zá-ž%]+)?")
+_NUM = re.compile(r"(?<![\w,.])(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{1,3}(?:[ \u00a0\u202f\u2009]\d{3})+|\d+(?:[.,]\d+)?)\s*([a-zA-Zá-ž%]+)?")
 
 
 def extract_numbers(text: str) -> list[tuple[str, float]]:
@@ -56,7 +56,7 @@ def extract_numbers(text: str) -> list[tuple[str, float]]:
         raw, unit = m.group(1), (m.group(2) or "").lower()
         if re.fullmatch(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?", raw):  # English thousands: 8,848.86 / 1,083
             raw = raw.replace(",", "")
-        val = float(raw.replace(" ", "").replace(" ", "").replace(",", "."))
+        val = float(re.sub(r"[ \u00a0\u202f\u2009]", "", raw).replace(",", "."))
         if unit in _UNITS:
             dim, mult = _UNITS[unit]
             out.append((dim, val * mult))
@@ -161,7 +161,7 @@ def causal_claim(claim: str) -> bool:
 
 # --- relation rule: "X je hlavní město Y" and superlatives, decided from the article text like the numeric rule ---
 _RELS = {  # cs | sk | en
-    "capital": r"hlavní(?:m)?\s+měst(?:o|em)|hlavn(?:é|ým|ého)\s+mest(?:o|om|a)|capital(?:\s+city)?",
+    "capital": r"hlavní(?:m)?(?:\s+\S+){0,3}?\s+měst(?:o|em)|hlavn(?:é|ým|ého)(?:\s+\S+){0,3}?\s+mest(?:o|om|a)|capital(?:\s+city)?",
     "peak": r"nejvyšší\s+hor(?:a|ou)|najvyšš(?:í|ia|ím|ou)\s+(?:vrch|vrchom|hora|horou)|highest\s+(?:mountain|peak|point)",
     "river": r"nejdelší\s+řek(?:a|ou)|najdlhš(?:ia|ou)\s+riek(?:a|ou)|longest\s+river",
     "largest": r"(?:největší|nejlidnatější)(?:m)?\s+měst(?:o|em)|najväčš(?:ie|ím)\s+mest(?:o|om)|(?:largest|biggest|most\s+populous)\s+city",
@@ -213,6 +213,11 @@ def relation_check(claim: str, sentences: list[str], title: str = "") -> Optiona
             if mm and not _ORDINAL.search(s[max(0, mm.start("rel") - 24):mm.start("rel")].lower()):
                 return _same(mm.group("z"), x), s
     return None
+
+
+def relation_claim(claim: str) -> bool:
+    """The claim asserts a capital / highest / longest / largest relation (whether or not a sentence decided it)."""
+    return _REL_CLAIM.match(claim) is not None
 
 
 def nonsense_marker(claim: str) -> bool:
@@ -321,8 +326,28 @@ class Engine:
         return VerdictResult(card, best["sentence"], best["entail"], best["contra"], False, per)
 
 
+_ABBR = {"nem", "maď", "angl", "lat", "poľ", "pol", "slov", "čes", "chorv", "srb", "rum", "rus", "ukr", "fr", "franc", "špan", "tal", "tzv", "napr", "např", "resp", "tj", "č", "st", "sv", "dr",
+         "ing", "mgr", "prof", "mr", "mrs", "ms", "no", "vol", "cca", "ok", "approx", "etc", "jr", "sr"}
+
+
 def split_sentences(text: str) -> list[str]:
-    return [s.strip() for s in SENT_SPLIT.split(text) if s.strip()]
+    """Split on . ! ? followed by a capital, except after one-letter tokens and known abbreviations ("nem. Donau", "n. m.")."""
+    out, start = [], 0
+    for m in SENT_SPLIT.finditer(text):
+        before = text[start:m.start()].rstrip().rstrip(".!?")
+        w = re.search(r"([\wá-žÁ-Ž]+)$", before)
+        tok = (w.group(1) if w else "").lower()
+        inside_paren = text[start:m.start()].count("(") > text[start:m.start()].count(")")
+        if inside_paren or (tok and (tok in _ABBR or (len(tok) == 1 and not tok.isdigit()))):
+            continue
+        piece = text[start:m.start()].strip()
+        if piece:
+            out.append(piece)
+        start = m.end()
+    tail = text[start:].strip()
+    if tail:
+        out.append(tail)
+    return out
 
 
 class Stopwatch:

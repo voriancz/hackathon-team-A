@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from engine import Engine, Stopwatch, causal_claim, grounding, nonsense_marker, relation_check, split_sentences
+from engine import Engine, Stopwatch, causal_claim, grounding, nonsense_marker, relation_check, relation_claim, split_sentences
 from evidence import get_evidence
 
 engine: Optional[Engine] = None
@@ -171,6 +171,10 @@ def _check_one(claim: str, context: Optional[str], lang: str = "cs"):
             best = cand
         if v.card != "NEOVERITELNE":
             break  # first decisive document wins; keeps latency low
+    # a relation claim the rule could not settle: NLI on its own tends to agree with any sentence that mentions
+    # "hlavné mesto" (Košice, European Capital of Volunteering), so it needs to be much surer to decide
+    if best["card"] != "NEOVERITELNE" and not best["by_rule"] and relation_claim(claim) and max(best["entail"], best["contra"]) < 0.92:
+        best = {**best, "card": "NEOVERITELNE"}
     sw.lap("verdict_ms")
     hint = ""
     if best["card"] == "NEOVERITELNE":
