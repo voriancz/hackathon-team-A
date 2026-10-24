@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import LieStrip, { type Seg } from "./LieStrip";
+import MicWave from "./MicWave";
 
 const API = process.env.NEXT_PUBLIC_API ?? "http://localhost:8000";
 
@@ -225,13 +226,6 @@ export default function Page() {
     <main className="stage">
       <section className="left">
         <div className="controls">
-        <button className={`mic ${listening ? "on" : ""}`} onClick={() => { if (listening) stop(); else void start(); }} aria-label={listening ? "Zastavit" : "Mluvit"} aria-pressed={listening}>
-          <svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true">
-            <rect x="9" y="3" width="6" height="12" rx="3" fill="currentColor" />
-            <path d="M5 11a7 7 0 0 0 14 0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            <path d="M12 18v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-        </button>
         <button className={`pause ${paused ? "on" : ""}`} onClick={() => setPaused((v) => !v)} aria-label={paused ? "Pokračovat v záznamu" : "Zastavit záznam"} aria-pressed={paused} title="p">
           {paused ? (
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor" /></svg>
@@ -250,6 +244,7 @@ export default function Page() {
       </section>
 
       <aside className="side" aria-label="Historie výroků">
+        <div className="hist-wrap">
         <ol className="hist">
           {history.map((r, i) => (
             <li key={i} className={r.card.toLowerCase()}>
@@ -262,6 +257,28 @@ export default function Page() {
             </li>
           ))}
         </ol>
+        </div>
+
+        {listening || demo ? (
+          <div className="dock live">
+            <div className="dock-label">{demo ? "simulace" : "mikrofon"}</div>
+            <MicWave analyser={analyser} ampRef={ampRef} />
+            <button className="stop" onClick={() => { if (demo) stopDemo(); else stop(); }} aria-label={demo ? "Zastavit simulaci" : "Zastavit mikrofon"}>
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" /></svg>
+            </button>
+          </div>
+        ) : (
+          <div className="dock idle">
+            <button className="mic" onClick={() => void start()} aria-label="Mluvit">
+              <svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true">
+                <rect x="9" y="3" width="6" height="12" rx="3" fill="currentColor" />
+                <path d="M5 11a7 7 0 0 0 14 0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                <path d="M12 18v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            </button>
+            <p className="hint"><kbd>d</kbd> pro simulaci</p>
+          </div>
+        )}
       </aside>
 
       {debug && (
