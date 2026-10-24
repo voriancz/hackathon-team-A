@@ -57,15 +57,20 @@ def _query_tokens(claim: str) -> list[str]:
 _search_cache: dict[tuple[str, int], list[dict]] = {}
 
 
-def _search(q: str, limit: int) -> list[dict]:
-    key = (q.lower(), limit)
+def _search(q: str, limit: int, prefix: bool = False) -> list[dict]:
+    """Fulltext search (generator=search) or, with prefix=True, title prefix search – the way to get the nominative
+    article for a declined object ("Česk" -> Česko, "Morav" -> Morava) without guessing Czech morphology."""
+    key = (q.lower(), limit, prefix)
     if key in _search_cache:
         return _search_cache[key]
     params = {
-        "action": "query", "format": "json", "formatversion": "2",
-        "generator": "search", "gsrsearch": q, "gsrlimit": str(limit), "gsrnamespace": "0",
+        "action": "query", "format": "json", "formatversion": "2", "redirects": "1",
         "prop": "extracts|info", "exintro": "1", "explaintext": "1", "exlimit": str(limit), "inprop": "url",
     }
+    if prefix:
+        params.update({"generator": "prefixsearch", "gpssearch": q, "gpslimit": str(limit), "gpsnamespace": "0"})
+    else:
+        params.update({"generator": "search", "gsrsearch": q, "gsrlimit": str(limit), "gsrnamespace": "0"})
     r = _client.get("https://cs.wikipedia.org/w/api.php", params=params)
     r.raise_for_status()
     pages = r.json().get("query", {}).get("pages", [])
@@ -117,17 +122,26 @@ def _secondary_entities(toks: list[str]) -> list[str]:
     return [t for t in toks[i:] if t[0].isupper()][:2]
 
 
+def _object_stem(ent: str) -> str:
+    """Prefix for the nominative title of a declined object: drop the ending ("Česka" -> "Česk", "Moravy" -> "Morav")."""
+    return ent[:-1] if len(ent) >= 4 else ent
+
+
 def object_docs(claim: str, toks: list[str], exclude_titles: set[str]) -> list[dict]:
     out = []
     for ent in _secondary_entities(toks):
-        try:
-            docs = _search(ent, 3)
-        except Exception:  # noqa: BLE001
-            continue
-        best = None
-        for d in docs:
-            if d["title"] in exclude_titles:
+        docs: list[dict] = []
+        for q, lim, pre in ((_object_stem(ent), 8, True), (ent, 3, False)):
+            try:
+                docs += _search(q, lim, pre)
+            except Exception:  # noqa: BLE001
                 continue
+        best = None
+        seen_titles: set[str] = set()
+        for d in docs:
+            if d["title"] in exclude_titles or d["title"] in seen_titles:
+                continue
+            seen_titles.add(d["title"])
             sc = title_score(ent, d["title"] or "", [ent])
             if sc > 0 and (best is None or sc > best[0]):
                 best = (sc, d)

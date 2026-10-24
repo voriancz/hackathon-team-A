@@ -232,6 +232,7 @@ export default function Page() {
       </section>
 
       <aside className="side" aria-label="Historie výroků">
+        <div className="brand" aria-label="Wiki Fact Check">Wiki Fact Check</div>
         <div className="hist-wrap">
         <ol className="hist">
           {history.map((r, i) => (

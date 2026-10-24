@@ -1,4 +1,4 @@
-# Řekni výrok
+# Wiki Fact Check
 
 Hlasový fact-check v reálném čase. Řekneš větu, aplikace ji průběžně přepisuje a ještě během mluvení ověřuje proti české Wikipedii. Výsledek je jedna ze čtyř karet: **PRAVDA**, **NEPRAVDA**, **NESMYSL** (věta nedává smysl jako tvrzení) nebo **NELZE OVĚŘIT** (s důvodem, proč). Pod mikrofonem běží „detektor lži": seismograf, který při pravdě vyjede nahoru, při nepravdě dolů a při neutrálu drží střed. Vpravo je historie výroků s větou z důkazu a odkazem na zdroj.
 
